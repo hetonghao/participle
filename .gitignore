@@ -1,0 +1,15 @@
+.externalToolBuilders
+.DS_Store
+.classpath
+.class
+.war
+.zip
+.rar
+.idea
+*.iml
+.settings/*
+/indexes/*
+/target/*
+/bin
+/.project
+/target
