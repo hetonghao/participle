@@ -69,6 +69,16 @@ public class KeywordService extends ParticipleServiceBase {
                 insertDic(bo.getName(), WordsTypeConstants.GS_NS);  // 加入词典
             }
         }
+        List<EnterpriseBO> enterpriseBOList = enterpriseDao.findAll();  //所有企业
+        for (EnterpriseBO enterpriseBO : enterpriseBOList) {
+            insertDic(enterpriseBO.getName(), WordsTypeConstants.NT);  //企业全名
+            insertDic(enterpriseBO.getAbbreviation(), WordsTypeConstants.NT);  //企业简称
+        }
+        List<IndustryClassBO> industryClassBOList = industryClassDao.findAll();  //所有行业
+        for (IndustryClassBO industryClassBO : industryClassBOList) {
+            insertDic(industryClassBO.getName(), WordsTypeConstants.IND);  //行业名称
+        }
+
     }
 
     /**
@@ -79,9 +89,10 @@ public class KeywordService extends ParticipleServiceBase {
      * @return
      */
     public KeywordBO save(Keyword keyword, User user) throws IllegalAccessException {
-        Field[] fields = WordsTypeSaveConstants.class.getDeclaredFields();
+        Class constants = WordsTypeSaveConstants.class;
+        Field[] fields = constants.getDeclaredFields();
         for (Field field : fields) {  //遍历所有的词性
-            if ((field.get(WordsTypeConstants.class)).equals(keyword.getWordsType())) {
+            if ((field.get(constants)).equals(keyword.getWordsType())) {
                 keywordDao.save(keyword, user);
                 super.insertDic(keyword.getName(), keyword.getWordsType());  //添加一个关键字给分词字典
                 return keywordDao.findOne(keyword.getId());
@@ -163,16 +174,92 @@ public class KeywordService extends ParticipleServiceBase {
         SimpleDateFormat format = new SimpleDateFormat("yyyy年MM月dd日 HH时mm分ss秒");
         List<PatternDate> list = PatternDateTimeUtil.defaultAnalysis(text);  //调用默认分析策略
         Calendar calendar = Calendar.getInstance();
+        Date startTime = null;
         for (PatternDate result : list) {
             if (result.isStarDateIs()) {  //开始时间
+                startTime = result.getDate();
                 analysisList.add(new AnalysisKeywordBO(result.getDate(), result.getText(), WordsTypeConstants.START_TIME));
             } else {//结束时间
+                AnalysisKeywordBO unit = new AnalysisKeywordBO();
+                unit.setName(getUnitWhole(startTime, result.getDate()));//分析一个时间段是否是一个单位整
+                unit.setWordsType("unit");
+                analysisList.add(unit);
                 calendar.setTime(result.getDate());
                 calendar.add(Calendar.MILLISECOND, -1);  //少一毫秒
-                Date endDate = calendar.getTime();
+                Date endDate;
+                endDate = dateSpilloverTreatment(calendar.getTime(), 1000L * 60L * 5L);//时间溢出处理，超过今天的时间替换成当前时间,允许5分钟间隔不被替换
                 analysisList.add(new AnalysisKeywordBO(endDate, format.format(endDate), WordsTypeConstants.END_TIME));
             }
         }
+    }
+
+    /**
+     * 时间溢出处理，超过今天的时间替换成当前时间
+     *
+     * @param time
+     * @param ms   允许间隔在毫秒数之内不被替换
+     * @return
+     */
+    private Date dateSpilloverTreatment(Date time, Long ms) {
+        if (time == null) {
+            return time;
+        }
+        if (ms == null) {
+            ms = 0L;
+        }
+        Date currentDate = new Date();
+        if (time.getTime() > currentDate.getTime() + ms) {//时间比当前时间
+            time = currentDate;
+        }
+        return time;
+    }
+
+    /**
+     * 分析一个时间段是否是一个单位整
+     *
+     * @param startTime
+     * @param endTime
+     * @return
+     */
+    private String getUnitWhole(Date startTime, Date endTime) {
+        Calendar startCal = Calendar.getInstance();
+        startCal.setTime(startTime);
+        int day = (int) ((endTime.getTime() - startTime.getTime()) / (1000 * 3600 * 24));  //相差天数
+        if (day > 360) {
+            startCal.add(Calendar.YEAR, 1);
+            if (startCal.getTime().getTime() == endTime.getTime() && startCal.get(Calendar.MONTH) == 0) {
+                return "年";
+            }
+        } else if (day > 84) {
+            startCal.add(Calendar.MONTH, 3);
+            int month = startCal.get(Calendar.MONTH);
+            if (startCal.getTime().getTime() == endTime.getTime() && (month == 0 || month == 3 || month == 6 || month == 9 || month == 12)) {
+                return "季";
+            }
+        } else if (day >= 28) {
+            startCal.add(Calendar.MONTH, 1);
+            if (startCal.getTime().getTime() == endTime.getTime() && startCal.get(Calendar.DATE) == 1) {
+                return "月";
+            }
+        } else if (day == 7) {
+            startCal.add(Calendar.DAY_OF_WEEK_IN_MONTH, 1);
+            if (startCal.getTime().getTime() == endTime.getTime() && startCal.get(Calendar.DAY_OF_WEEK) == 2) {//周一
+                return "周";
+            }
+        } else if (day == 1) {
+            startCal.add(Calendar.DATE, 1);
+            if (startCal.getTime().getTime() == endTime.getTime()) {
+                return "日";
+            }
+        }
+        startCal.setTime(startTime);  //重置时间
+        if (startCal.get(Calendar.DATE) == 1) {
+            startCal.add(Calendar.MONTH, day / 28);  //间隔几个月
+            if (startCal.getTime().getTime() == endTime.getTime()) {
+                return "跨月";
+            }
+        }
+        return null;
     }
 
     /**
